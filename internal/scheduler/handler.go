@@ -11,7 +11,7 @@ import (
 type Handler struct{}
 
 func (h *Handler) Process(message amqp.Delivery) error {
-	log.Printf("Received task: %s", message.Body)
+	log.Printf("Run task: %s", message.Body)
 	time.Sleep(time.Duration(rand.Intn(10)+5) * time.Second) // Simulate processing time
 	log.Printf("Finished task: %s", message.Body)
 	return nil

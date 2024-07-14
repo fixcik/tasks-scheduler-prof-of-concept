@@ -14,7 +14,7 @@ type Config struct {
 	RabbitMQVHost     string `mapstructure:"RABBITMQ_VHOST"`
 	Queue             string `mapstructure:"QUEUE"`
 	MaxParallelTasks  int    `mapstructure:"MAX_PARALLEL_TASKS"`
-	MAxTasksPerMinute int    `mapstructure:"MAX_TASKS_PER_MINUTE"`
+	MaxTasksPerMinute int    `mapstructure:"MAX_TASKS_PER_MINUTE"`
 }
 
 func LoadConfig() (*Config, error) {
