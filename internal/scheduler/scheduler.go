@@ -74,6 +74,10 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 				select {
 				case <-ctx.Done():
 					return
+				case <-time.After(time.Second * 5):
+					if limiter.Tokens() > 0 {
+						limiter.ReserveN(time.Now(), int(limiter.Tokens()))
+					}
 				case d, ok := <-msgs:
 					if !ok {
 						return
@@ -96,6 +100,7 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 					parallelTasks.Add(-1)
 					s.pool.Put(handler)
 				}
+
 			}
 		}()
 	}
@@ -120,6 +125,7 @@ func (s *Scheduler) Consume() error {
 	wg.Add(s.config.MaxParallelTasks)
 
 	limiter := rate.NewLimiter(rate.Every(time.Minute/time.Duration(s.config.MaxTasksPerMinute)), s.config.MaxTasksPerMinute)
+	limiter.ReserveN(time.Now(), int(limiter.Tokens()))
 
 	parallelTasks := atomic.Int32{}
 	waitingTasks := atomic.Int32{}
