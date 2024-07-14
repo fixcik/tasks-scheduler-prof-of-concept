@@ -53,7 +53,7 @@ func (s *Scheduler) Consume() error {
 		false,
 		false,
 		amqp.Table{
-			"prefetch-count": 10,
+			"prefetch-count": s.config.MaxParallelTasks,
 		},
 	)
 
