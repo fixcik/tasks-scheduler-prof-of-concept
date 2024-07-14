@@ -72,7 +72,7 @@ func (s *Scheduler) Consume() error {
 	go func() {
 		for {
 			time.Sleep(time.Second)
-			log.Printf("Tokens: %f, parallel tasks: %d\n", limiter.Tokens(), parallel_tasks)
+			log.Printf("Free capacity: %f, parallel tasks: %d\n", limiter.Tokens(), parallel_tasks)
 		}
 	}()
 
