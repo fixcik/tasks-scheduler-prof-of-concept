@@ -2,7 +2,6 @@ package config
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/spf13/viper"
 )
@@ -41,8 +40,6 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Printf("%+v\n", config)
 
 	if config.RabbitMQPort == 0 {
 		return nil, errors.New("RABBITMQ_PORT environment variable required")

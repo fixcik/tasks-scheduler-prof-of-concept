@@ -68,7 +68,7 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 	}
 
 	for i := 0; i < s.config.MaxParallelTasks; i++ {
-		go func(i int) {
+		go func() {
 			defer wg.Done()
 			for {
 				select {
@@ -100,7 +100,7 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 					}
 				}
 			}
-		}(i)
+		}()
 	}
 
 	return nil
