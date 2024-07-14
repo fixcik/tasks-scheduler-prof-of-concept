@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"task_scheduler/internal/config"
 	"time"
 
@@ -28,23 +29,29 @@ func NewScheduler(config *config.Config) *Scheduler {
 	}
 }
 
-func (s *Scheduler) Consume() error {
+func (s *Scheduler) setupRabbitMQ() (*amqp.Channel, *amqp.Connection, error) {
 	conn, err := amqp.Dial(fmt.Sprintf("amqp://%s:%s@%s:%d%s", s.config.RabbitMQUser, s.config.RabbitMQUser, s.config.RabbitMQHost, s.config.RabbitMQPort, s.config.RabbitMQVHost))
 	if err != nil {
-		log.Fatalf("Failed to connect to RabbitMQ: %s", err)
-		return err
+		return nil, nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
-	defer conn.Close()
 
 	ch, err := conn.Channel()
 	if err != nil {
-		log.Fatalf("Failed to open a channel: %s", err)
-		return err
+		conn.Close()
+		return nil, nil, fmt.Errorf("failed to open a channel: %w", err)
 	}
-	defer ch.Close()
 
-	ch.QueueDeclare(s.config.Queue, true, false, false, false, nil)
+	_, err = ch.QueueDeclare(s.config.Queue, true, false, false, false, nil)
+	if err != nil {
+		ch.Close()
+		conn.Close()
+		return nil, nil, fmt.Errorf("failed to declare queue: %w", err)
+	}
 
+	return ch, conn, nil
+}
+
+func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *sync.WaitGroup, limiter *rate.Limiter, parallelTasks *atomic.Int32) error {
 	msgs, err := ch.Consume(
 		s.config.Queue,
 		"",
@@ -56,52 +63,88 @@ func (s *Scheduler) Consume() error {
 			"prefetch-count": s.config.MaxParallelTasks,
 		},
 	)
-
 	if err != nil {
-		log.Fatalf("Failed to register a consumer: %s", err)
+		return fmt.Errorf("failed to register a consumer: %w", err)
+	}
+
+	for i := 0; i < s.config.MaxParallelTasks; i++ {
+		go func(i int) {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					err = limiter.Wait(ctx)
+					if err != nil {
+						log.Printf("Error waiting for rate limiter: %s", err)
+						continue
+					}
+					select {
+					case <-ctx.Done():
+						return
+					case d, ok := <-msgs:
+						if !ok {
+							return
+						}
+						parallelTasks.Add(1)
+						handler := s.pool.Get().(*Handler)
+						err = handler.Process(d)
+						if err != nil {
+							d.Nack(false, true)
+						} else {
+							d.Ack(false)
+						}
+						parallelTasks.Add(-1)
+						s.pool.Put(handler)
+					}
+				}
+			}
+		}(i)
+	}
+
+	return nil
+}
+
+func (s *Scheduler) Consume() error {
+	ch, conn, err := s.setupRabbitMQ()
+	if err != nil {
 		return err
 	}
+	defer func() {
+		ch.Close()
+		conn.Close()
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	var wg sync.WaitGroup
 	wg.Add(s.config.MaxParallelTasks)
 
 	limiter := rate.NewLimiter(rate.Every(time.Minute/time.Duration(s.config.MAxTasksPerMinute)), s.config.MAxTasksPerMinute)
 
-	parallel_tasks := 0
+	parallelTasks := atomic.Int32{}
 
-	go func() {
-		for {
-			time.Sleep(time.Second)
-			log.Printf("Free capacity: %f, parallel tasks: %d\n", limiter.Tokens(), parallel_tasks)
-		}
-	}()
+	go s.PrintInto(ctx, limiter, &parallelTasks)
 
-	for i := 0; i < s.config.MaxParallelTasks; i++ {
-		go func(i int) {
-			defer wg.Done()
-			for d := range msgs {
-				err = limiter.Wait(context.Background())
-				if err != nil {
-					log.Printf("Error waiting for rate limiter: %s", err)
-					d.Nack(false, true)
-					continue
-				}
-				parallel_tasks++
-				handler := s.pool.Get().(*Handler)
-				err = handler.Process(d)
-				if err != nil {
-					d.Nack(false, true)
-				} else {
-					d.Ack(false)
-				}
-				parallel_tasks--
-				s.pool.Put(handler)
-
-			}
-		}(i)
+	err = s.consumeMessages(ch, ctx, &wg, limiter, &parallelTasks)
+	if err != nil {
+		return err
 	}
 
 	wg.Wait()
 
 	return nil
+}
+
+func (s *Scheduler) PrintInto(ctx context.Context, limiter *rate.Limiter, parallelTasks *atomic.Int32) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+			log.Printf("Free capacity: %f, parallel tasks: %d\n", limiter.Tokens(), parallelTasks.Load())
+		}
+	}
 }
