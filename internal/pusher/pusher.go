@@ -48,7 +48,7 @@ func (p *Pusher) Push() error {
 			false,
 			amqp.Publishing{
 				ContentType: "text/plain",
-				Body:        []byte(fmt.Sprintf("%d message", i)),
+				Body:        []byte(fmt.Sprintf("%d task", i)),
 			},
 		)
 		if err != nil {
