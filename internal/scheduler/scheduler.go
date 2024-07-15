@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"task_scheduler/internal/config"
+	"task_scheduler/internal/mq"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -27,28 +28,6 @@ func NewScheduler(config *config.Config) *Scheduler {
 			},
 		},
 	}
-}
-
-func (s *Scheduler) setupRabbitMQ() (*amqp.Channel, *amqp.Connection, error) {
-	conn, err := amqp.Dial(fmt.Sprintf("amqp://%s:%s@%s:%d%s", s.config.RabbitMQUser, s.config.RabbitMQUser, s.config.RabbitMQHost, s.config.RabbitMQPort, s.config.RabbitMQVHost))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
-	}
-
-	ch, err := conn.Channel()
-	if err != nil {
-		conn.Close()
-		return nil, nil, fmt.Errorf("failed to open a channel: %w", err)
-	}
-
-	_, err = ch.QueueDeclare(s.config.Queue, true, false, false, false, nil)
-	if err != nil {
-		ch.Close()
-		conn.Close()
-		return nil, nil, fmt.Errorf("failed to declare queue: %w", err)
-	}
-
-	return ch, conn, nil
 }
 
 func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *sync.WaitGroup, limiter *rate.Limiter, parallelTasks, waitingTasks *atomic.Int32) error {
@@ -105,7 +84,7 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 }
 
 func (s *Scheduler) Consume() error {
-	ch, conn, err := s.setupRabbitMQ()
+	ch, conn, err := mq.Setup(s.config)
 	if err != nil {
 		return err
 	}

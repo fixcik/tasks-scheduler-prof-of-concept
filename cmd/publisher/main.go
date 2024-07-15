@@ -4,7 +4,7 @@ import (
 	"log"
 
 	"task_scheduler/internal/config"
-	"task_scheduler/internal/pusher"
+	"task_scheduler/internal/publisher"
 )
 
 func main() {
@@ -15,7 +15,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	pusher := pusher.NewPusher(config)
+	pusher := publisher.NewPublisher(config)
 
 	if err = pusher.Push(); err != nil {
 		log.Fatal(err)
