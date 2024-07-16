@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	"task_scheduler/internal/config"
@@ -14,7 +15,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	scheduler := scheduler.NewScheduler(config)
+	ctx := context.Background()
+	scheduler := scheduler.NewScheduler(ctx, config)
 	error := scheduler.Consume()
 
 	if error != nil {

@@ -17,20 +17,22 @@ import (
 type Scheduler struct {
 	config *config.Config
 	pool   *sync.Pool
+	ctx    context.Context
 }
 
-func NewScheduler(config *config.Config) *Scheduler {
+func NewScheduler(ctx context.Context, config *config.Config) *Scheduler {
 	return &Scheduler{
 		config: config,
+		ctx:    ctx,
 		pool: &sync.Pool{
 			New: func() interface{} {
-				return new(Handler)
+				return NewHandler(ctx)
 			},
 		},
 	}
 }
 
-func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *sync.WaitGroup, limiter *rate.Limiter, parallelTasks, waitingTasks *atomic.Int32) error {
+func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *sync.WaitGroup, limiter *rate.Limiter) error {
 	ch.Qos(s.config.MaxParallelTasks, 0, false)
 	msgs, err := ch.Consume(
 		s.config.Queue,
@@ -45,16 +47,19 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 		return fmt.Errorf("failed to register a consumer: %w", err)
 	}
 
-	idleGorutenes := atomic.Int32{}
-	idleGorutenes.Store(int32(s.config.MaxParallelTasks))
+	var idleGoroutines, parallelTasks, waitingTasks atomic.Int32
+	idleGoroutines.Store(int32(s.config.MaxParallelTasks))
 
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(time.Second):
-				log.Printf("idle goroutines: %d", idleGorutenes.Load())
+			case <-time.After(time.Second * 5):
+				log.Printf(
+					"Free capacity: %f, waiting tasks: %d, parallel tasks: %d, idle goroutines: %d",
+					limiter.Tokens(), waitingTasks.Load(), parallelTasks.Load(), idleGoroutines.Load(),
+				)
 			}
 		}
 	}()
@@ -69,19 +74,19 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 					return
 				case <-time.After(time.Millisecond * 100):
 					if !idle {
-						idleGorutenes.Add(1)
+						idleGoroutines.Add(1)
 						idle = true
 					}
 				case d, ok := <-msgs:
 					if !ok {
 						return
 					}
-					if idleGorutenes.Load() == int32(s.config.MaxParallelTasks) {
+					if idleGoroutines.Load() == int32(s.config.MaxParallelTasks) {
 						// Reserve tokens for smooth start handle tasks
 						limiter.ReserveN(time.Now(), int(limiter.Tokens()))
 					}
 					if idle {
-						idleGorutenes.Add(-1)
+						idleGoroutines.Add(-1)
 						idle = false
 					}
 					waitingTasks.Add(1)
@@ -95,7 +100,7 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 					handler := s.pool.Get().(*Handler)
 					err = handler.Process(d)
 					if err != nil {
-						d.Nack(false, true)
+						d.Nack(false, false)
 					} else {
 						d.Ack(false)
 					}
@@ -120,7 +125,7 @@ func (s *Scheduler) Consume() error {
 		conn.Close()
 	}()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -128,12 +133,7 @@ func (s *Scheduler) Consume() error {
 
 	limiter := rate.NewLimiter(rate.Every(time.Minute/time.Duration(s.config.MaxTasksPerMinute)), s.config.MaxTasksPerMinute)
 
-	parallelTasks := atomic.Int32{}
-	waitingTasks := atomic.Int32{}
-
-	go s.PrintInto(ctx, limiter, &parallelTasks, &waitingTasks)
-
-	err = s.consumeMessages(ch, ctx, &wg, limiter, &parallelTasks, &waitingTasks)
+	err = s.consumeMessages(ch, ctx, &wg, limiter)
 	if err != nil {
 		return err
 	}
@@ -141,15 +141,4 @@ func (s *Scheduler) Consume() error {
 	wg.Wait()
 
 	return nil
-}
-
-func (s *Scheduler) PrintInto(ctx context.Context, limiter *rate.Limiter, parallelTasks, waitingTasks *atomic.Int32) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(time.Second):
-			log.Printf("Free capacity: %f, waiting tasks: %d, parallel tasks: %d\n", limiter.Tokens(), waitingTasks.Load(), parallelTasks.Load())
-		}
-	}
 }

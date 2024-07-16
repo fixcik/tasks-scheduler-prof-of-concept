@@ -3,8 +3,10 @@ package publisher
 import (
 	"fmt"
 	"math/rand"
+	"strconv"
 	"task_scheduler/internal/config"
 	"task_scheduler/internal/mq"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -29,7 +31,14 @@ func (p *Publisher) Push() error {
 		conn.Close()
 	}()
 
-	for i := 0; i < 100; i++ {
+	// ttl for message until day end.
+	now := time.Now()
+	endOfDay := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
+	remainingTime := endOfDay.Sub(now)
+	expiration := strconv.FormatInt(remainingTime.Milliseconds(), 10)
+
+	// publish 1000 messages with random priority (1 or 2) and random body.
+	for i := 0; i < 1000; i++ {
 		priority := uint8(rand.Intn(2)) + 1
 
 		taskBody := fmt.Sprintf("%d task", i)
@@ -43,9 +52,11 @@ func (p *Publisher) Push() error {
 			false,
 			false,
 			amqp.Publishing{
-				ContentType: "text/plain",
-				Priority:    priority,
-				Body:        []byte(taskBody),
+				ContentType:  "text/plain",
+				DeliveryMode: amqp.Persistent,
+				Priority:     priority,
+				Body:         []byte(taskBody),
+				Expiration:   expiration,
 			},
 		)
 		if err != nil {
