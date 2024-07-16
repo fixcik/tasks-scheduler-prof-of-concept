@@ -31,11 +31,8 @@ func (p *Publisher) Push() error {
 		conn.Close()
 	}()
 
-	// ttl for message until day end.
 	now := time.Now()
 	endOfDay := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
-	remainingTime := endOfDay.Sub(now)
-	expiration := strconv.FormatInt(remainingTime.Milliseconds(), 10)
 
 	// publish 1000 messages with random priority (1 or 2) and random body.
 	for i := 0; i < 1000; i++ {
@@ -56,7 +53,7 @@ func (p *Publisher) Push() error {
 				DeliveryMode: amqp.Persistent,
 				Priority:     priority,
 				Body:         []byte(taskBody),
-				Expiration:   expiration,
+				Expiration:   strconv.FormatInt(endOfDay.Sub(now).Milliseconds(), 10),
 			},
 		)
 		if err != nil {
