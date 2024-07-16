@@ -99,11 +99,11 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel) error {
 					}
 					waitingTasks.Add(1)
 					err = limiter.Wait(ctx)
-					waitingTasks.Add(-1)
 					if err != nil {
 						log.Printf("failed to wait for rate limiter: %v", err)
 						continue
 					}
+					waitingTasks.Add(-1)
 					parallelTasks.Add(1)
 					handler := s.pool.Get().(*Handler)
 					err = handler.Process(d)
