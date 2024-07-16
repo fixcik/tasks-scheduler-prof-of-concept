@@ -48,10 +48,21 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 	idleGorutenes := atomic.Int32{}
 	idleGorutenes.Store(int32(s.config.MaxParallelTasks))
 
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second):
+				log.Printf("idle goroutines: %d", idleGorutenes.Load())
+			}
+		}
+	}()
+
 	for i := 0; i < s.config.MaxParallelTasks; i++ {
 		go func() {
 			defer wg.Done()
-			idle := false
+			idle := true
 			for {
 				select {
 				case <-ctx.Done():
