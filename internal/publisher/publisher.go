@@ -30,10 +30,10 @@ func (p *Publisher) Push() error {
 	}()
 
 	for i := 0; i < 100; i++ {
-		priority := uint8(rand.Intn(2))
+		priority := uint8(rand.Intn(2)) + 1
 
 		taskBody := fmt.Sprintf("%d task", i)
-		if priority == 0 {
+		if priority == 1 {
 			taskBody += " (slow)"
 		}
 
