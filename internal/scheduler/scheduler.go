@@ -32,7 +32,10 @@ func NewScheduler(ctx context.Context, config *config.Config) *Scheduler {
 	}
 }
 
-func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *sync.WaitGroup, limiter *rate.Limiter) error {
+func (s *Scheduler) consumeMessages(ch *amqp.Channel) error {
+	ctx, cancel := context.WithCancel(s.ctx)
+	defer cancel()
+
 	ch.Qos(s.config.MaxParallelTasks, 0, false)
 	msgs, err := ch.Consume(
 		s.config.Queue,
@@ -46,6 +49,11 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 	if err != nil {
 		return fmt.Errorf("failed to register a consumer: %w", err)
 	}
+
+	var wg sync.WaitGroup
+	wg.Add(s.config.MaxParallelTasks)
+
+	limiter := rate.NewLimiter(rate.Every(time.Minute/time.Duration(s.config.MaxTasksPerMinute)), s.config.MaxTasksPerMinute)
 
 	var idleGoroutines, parallelTasks, waitingTasks atomic.Int32
 	idleGoroutines.Store(int32(s.config.MaxParallelTasks))
@@ -112,6 +120,8 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 		}()
 	}
 
+	wg.Wait()
+
 	return nil
 }
 
@@ -125,20 +135,10 @@ func (s *Scheduler) Consume() error {
 		conn.Close()
 	}()
 
-	ctx, cancel := context.WithCancel(s.ctx)
-	defer cancel()
-
-	var wg sync.WaitGroup
-	wg.Add(s.config.MaxParallelTasks)
-
-	limiter := rate.NewLimiter(rate.Every(time.Minute/time.Duration(s.config.MaxTasksPerMinute)), s.config.MaxTasksPerMinute)
-
-	err = s.consumeMessages(ch, ctx, &wg, limiter)
+	err = s.consumeMessages(ch)
 	if err != nil {
 		return err
 	}
-
-	wg.Wait()
 
 	return nil
 }
