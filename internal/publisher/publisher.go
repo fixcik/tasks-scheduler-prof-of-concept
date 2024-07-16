@@ -2,6 +2,7 @@ package publisher
 
 import (
 	"fmt"
+	"math/rand"
 	"task_scheduler/internal/config"
 	"task_scheduler/internal/mq"
 
@@ -29,6 +30,13 @@ func (p *Publisher) Push() error {
 	}()
 
 	for i := 0; i < 100; i++ {
+		priority := uint8(rand.Intn(2))
+
+		taskBody := fmt.Sprintf("%d task", i)
+		if priority == 0 {
+			taskBody += " (slow)"
+		}
+
 		err = ch.Publish(
 			"",
 			p.config.Queue,
@@ -36,7 +44,8 @@ func (p *Publisher) Push() error {
 			false,
 			amqp.Publishing{
 				ContentType: "text/plain",
-				Body:        []byte(fmt.Sprintf("%d task", i)),
+				Priority:    priority,
+				Body:        []byte(taskBody),
 			},
 		)
 		if err != nil {
