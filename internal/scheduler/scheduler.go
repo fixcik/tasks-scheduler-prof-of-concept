@@ -46,7 +46,8 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 		return fmt.Errorf("failed to register a consumer: %w", err)
 	}
 
-	var idleGorutenes atomic.Int32
+	idleGorutenes := atomic.Int32{}
+	idleGorutenes.Store(int32(s.config.MaxParallelTasks))
 
 	for i := 0; i < s.config.MaxParallelTasks; i++ {
 		go func() {
