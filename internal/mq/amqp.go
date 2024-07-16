@@ -37,9 +37,7 @@ func Setup(config *config.Config) (*amqp.Channel, *amqp.Connection, error) {
 	}
 
 	dlxQueue := fmt.Sprintf("%s.dlx", config.Queue)
-	dlxQueueArgs := make(amqp.Table)
-	args["queue-mode"] = "lazy"
-	_, err = ch.QueueDeclare(dlxQueue, true, false, false, false, dlxQueueArgs)
+	_, err = ch.QueueDeclare(dlxQueue, true, false, false, false, nil)
 	if err != nil {
 		ch.Close()
 		conn.Close()
