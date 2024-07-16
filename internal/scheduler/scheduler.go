@@ -56,7 +56,7 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 				select {
 				case <-ctx.Done():
 					return
-				case <-time.After(time.Second):
+				case <-time.After(time.Millisecond * 100):
 					if !idle {
 						idleGorutenes.Add(1)
 						idle = true
@@ -66,6 +66,7 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 						return
 					}
 					if idleGorutenes.Load() == int32(s.config.MaxParallelTasks) {
+						// Reserve tokens for smooth start handle tasks
 						limiter.ReserveN(time.Now(), int(limiter.Tokens()))
 					}
 					if idle {
