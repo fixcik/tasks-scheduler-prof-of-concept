@@ -31,6 +31,7 @@ func NewScheduler(config *config.Config) *Scheduler {
 }
 
 func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *sync.WaitGroup, limiter *rate.Limiter, parallelTasks, waitingTasks *atomic.Int32) error {
+	ch.Qos(s.config.MaxParallelTasks, 0, false)
 	msgs, err := ch.Consume(
 		s.config.Queue,
 		"",
@@ -38,9 +39,7 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 		false,
 		false,
 		false,
-		amqp.Table{
-			"prefetch-count": s.config.MaxParallelTasks,
-		},
+		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to register a consumer: %w", err)
