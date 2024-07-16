@@ -46,16 +46,31 @@ func (s *Scheduler) consumeMessages(ch *amqp.Channel, ctx context.Context, wg *s
 		return fmt.Errorf("failed to register a consumer: %w", err)
 	}
 
+	var idleGorutenes atomic.Int32
+
 	for i := 0; i < s.config.MaxParallelTasks; i++ {
 		go func() {
 			defer wg.Done()
+			idle := false
 			for {
 				select {
 				case <-ctx.Done():
 					return
+				case <-time.After(time.Second):
+					if !idle {
+						idleGorutenes.Add(1)
+						idle = true
+					}
 				case d, ok := <-msgs:
 					if !ok {
 						return
+					}
+					if idleGorutenes.Load() == int32(s.config.MaxParallelTasks) {
+						limiter.ReserveN(time.Now(), int(limiter.Tokens()))
+					}
+					if idle {
+						idleGorutenes.Add(-1)
+						idle = false
 					}
 					waitingTasks.Add(1)
 					err = limiter.Wait(ctx)
